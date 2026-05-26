@@ -28,12 +28,18 @@ jobs:
       - name: Install dependencies
         run: pip install pywin32 pyinstaller
 
+      - name: Run pywin32 post-install (registers DLLs)
+        run: python Scripts/pywin32_postinstall.py -install
+        working-directory: ${{ env.pythonLocation }}
+
       - name: Build EXE
         run: >
           pyinstaller
           --onefile
           --noconsole
           --name ClipboardWatcher
+          --collect-all pywin32
+          --hidden-import win32timezone
           main.py
 
       - name: Upload artifact (every push)
