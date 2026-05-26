@@ -3,6 +3,8 @@ name: Build Windows EXE
 on:
   push:
     branches: [main]
+    tags:
+      - "v*.*.*"
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -31,9 +33,15 @@ jobs:
           --name ClipboardWatcher
           main.py
 
-      - name: Upload EXE artifact
+      - name: Upload artifact (every push)
         uses: actions/upload-artifact@v4
         with:
           name: ClipboardWatcher-windows
           path: dist/ClipboardWatcher.exe
           retention-days: 30
+
+      - name: Create GitHub Release (on version tags only)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/ClipboardWatcher.exe
