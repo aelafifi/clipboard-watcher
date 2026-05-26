@@ -6,13 +6,14 @@ trigger prefix ("gpt:"), it strips the prefix and sends the rest to ChatGPT
 via browser automation, waits for the response, copies it back to the
 clipboard, and shows a "Job Done!" alert.
 
-Requirements: pip install pywin32 selenium webdriver-manager
+Requirements: pip install pywin32 selenium webdriver-manager urllib3<2
 """
 
 import ctypes
 import ctypes.wintypes
 import os
 import threading
+import time
 import win32clipboard
 import win32con
 import win32gui
@@ -50,6 +51,23 @@ HEADLESS = False
 
 
 # ------------------------------------------------------------------
+# Clipboard helpers
+# ------------------------------------------------------------------
+
+def _open_clipboard(retries: int = 10, delay: float = 0.05) -> bool:
+    """Try to open the clipboard, retrying if another app holds it."""
+    for attempt in range(retries):
+        try:
+            win32clipboard.OpenClipboard()
+            return True
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(delay)
+    print("[ClipboardWatcher] could not open clipboard after retries")
+    return False
+
+
+# ------------------------------------------------------------------
 # Clipboard watcher (Win32 message loop)
 # ------------------------------------------------------------------
 
@@ -61,7 +79,6 @@ class ClipboardWatcher:
         wc.hInstance = win32api.GetModuleHandle(None)
         win32gui.RegisterClass(wc)
 
-        # Message-only window — no visible UI
         self.hwnd = win32gui.CreateWindowEx(
             0, wc.lpszClassName, "ClipWatcher", 0,
             0, 0, 0, 0,
@@ -87,8 +104,11 @@ class ClipboardWatcher:
             return
         self._last_seq = seq
 
+        # Retry opening the clipboard — another app may briefly hold it
+        if not _open_clipboard():
+            return
+
         try:
-            win32clipboard.OpenClipboard()
             if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
                 text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
                 self.handle_text(text)
@@ -118,18 +138,15 @@ class ClipboardWatcher:
         prompt = text[len(TRIGGER_PREFIX):].strip()
         print(f"[TRIGGER] Sending to ChatGPT: {prompt[:80]!r}")
 
-        # Run in a background thread so the Win32 message loop isn't blocked
         threading.Thread(target=_ask_chatgpt, args=(prompt,), daemon=True).start()
 
     def handle_files(self, paths: List[str]):
         """Called whenever one or more files are copied (Ctrl+C in Explorer)."""
         print(f"[FILES] {paths}")
-        # --- add your logic below ---
 
     def handle_other(self):
         """Called for clipboard formats we don't explicitly handle (images, etc.)."""
         print("[OTHER] Non-text/file clipboard content detected.")
-        # --- add your logic below ---
 
 
 # ------------------------------------------------------------------
@@ -141,7 +158,6 @@ def _ask_chatgpt(prompt: str):
     driver = None
 
     try:
-        # ---- Build Chrome options ----
         options = Options()
         options.add_argument(f"--user-data-dir={BROWSER_PROFILE_DIR}")
         options.add_argument("--profile-directory=Default")
@@ -150,17 +166,12 @@ def _ask_chatgpt(prompt: str):
         if HEADLESS:
             options.add_argument("--headless=new")
 
-        # webdriver-manager downloads the right ChromeDriver automatically
-        # and caches it in %USERPROFILE%\.wdm\ for future runs
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
 
-        # ---- Navigate to ChatGPT ----
         driver.get("https://chatgpt.com/")
 
         wait = WebDriverWait(driver, 20)
-
-        # Wait for the chat input to be ready
         input_box = wait.until(
             EC.element_to_be_clickable((By.ID, "prompt-textarea"))
         )
@@ -168,28 +179,29 @@ def _ask_chatgpt(prompt: str):
         input_box.send_keys(prompt)
         input_box.send_keys(Keys.ENTER)
 
-        # Wait for ChatGPT to start generating (stop button appears) …
+        # Wait for generation to start, then finish
         wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="stop-button"]'))
         )
-        # … then wait for it to finish (stop button disappears)
         WebDriverWait(driver, 120).until(
             EC.invisibility_of_element((By.CSS_SELECTOR, '[data-testid="stop-button"]'))
         )
 
-        # Grab the last assistant message
         responses = driver.find_elements(By.CSS_SELECTOR, '[data-message-author-role="assistant"]')
         if not responses:
             raise RuntimeError("Could not find assistant response on the page.")
         response_text = responses[-1].text
 
         driver.quit()
+        driver = None
 
-        # ---- Write response back to clipboard ----
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, response_text)
-        win32clipboard.CloseClipboard()
+        # Write response back to clipboard (with retry)
+        if _open_clipboard():
+            try:
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, response_text)
+            finally:
+                win32clipboard.CloseClipboard()
 
         print(f"[DONE] Response copied to clipboard ({len(response_text)} chars).")
         user32.MessageBoxW(0, "Response copied to clipboard!", "Job Done!", 0)
