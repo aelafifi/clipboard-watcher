@@ -26,7 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install pywin32 selenium webdriver-manager pyinstaller
+        run: pip install pywin32 selenium webdriver-manager "urllib3<2" pyinstaller
 
       - name: Run pywin32 post-install
         run: python Scripts/pywin32_postinstall.py -install
