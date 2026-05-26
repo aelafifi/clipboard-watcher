@@ -26,9 +26,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install pywin32 pyinstaller
+        run: pip install pywin32 selenium webdriver-manager pyinstaller
 
-      - name: Run pywin32 post-install (registers DLLs)
+      - name: Run pywin32 post-install
         run: python Scripts/pywin32_postinstall.py -install
         working-directory: ${{ env.pythonLocation }}
 
@@ -39,6 +39,8 @@ jobs:
           --noconsole
           --name ClipboardWatcher
           --collect-all pywin32
+          --collect-all selenium
+          --collect-all webdriver_manager
           --hidden-import win32timezone
           main.py
 
