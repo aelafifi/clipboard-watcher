@@ -9,6 +9,7 @@ Requirements: pip install pywin32
 
 import ctypes
 import ctypes.wintypes
+from typing import List
 import win32clipboard
 import win32con
 import win32gui
@@ -97,7 +98,7 @@ class ClipboardWatcher:
         #   if text.startswith("http"):
         #       print("  -> URL detected")
 
-    def handle_files(self, paths: list[str]):
+    def handle_files(self, paths: List[str]):
         """Called whenever one or more files are copied (Ctrl+C in Explorer)."""
         print(f"[FILES] {paths}")
 
