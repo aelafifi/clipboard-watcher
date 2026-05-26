@@ -1,18 +1,22 @@
 """
 clipboard_watcher/main.py
 
-Listens for clipboard changes on Windows and calls handle() with the copied
-text so you can plug in any custom decision logic you want.
+Listens for clipboard changes on Windows and calls handle_*() with the copied
+content so you can plug in any custom decision logic you want.
 
 Requirements: pip install pywin32
 """
 
+import ctypes
+import ctypes.wintypes
 import win32clipboard
 import win32con
 import win32gui
 import win32api
 
 WM_CLIPBOARDUPDATE = 0x031D
+
+user32 = ctypes.windll.user32
 
 
 class ClipboardWatcher:
@@ -31,7 +35,8 @@ class ClipboardWatcher:
             -3, 0, wc.hInstance, None
         )
 
-        win32clipboard.AddClipboardFormatListener(self.hwnd)
+        # AddClipboardFormatListener is in user32.dll, not wrapped by win32clipboard
+        user32.AddClipboardFormatListener(self.hwnd)
         self._last_seq = win32clipboard.GetClipboardSequenceNumber()
         print("Clipboard watcher started. Press Ctrl+C to stop.")
 
@@ -42,7 +47,7 @@ class ClipboardWatcher:
         if msg == WM_CLIPBOARDUPDATE:
             self._on_clipboard_change()
         elif msg == win32con.WM_DESTROY:
-            win32clipboard.RemoveClipboardFormatListener(hwnd)
+            user32.RemoveClipboardFormatListener(hwnd)
             win32gui.PostQuitMessage(0)
         return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
@@ -65,12 +70,10 @@ class ClipboardWatcher:
                 self.handle_text(text)
 
             elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_HDROP):
-                # Files were copied — paths arrive as a tuple of strings
                 files = win32clipboard.GetClipboardData(win32con.CF_HDROP)
                 self.handle_files(list(files))
 
             else:
-                # Image, HTML, custom format, etc.
                 self.handle_other()
 
         except Exception as exc:
@@ -82,7 +85,7 @@ class ClipboardWatcher:
                 pass
 
     # ------------------------------------------------------------------
-    # ✏️  YOUR CUSTOM LOGIC GOES HERE
+    # YOUR CUSTOM LOGIC GOES HERE
     # ------------------------------------------------------------------
 
     def handle_text(self, text: str):
@@ -92,9 +95,7 @@ class ClipboardWatcher:
         # --- add your logic below ---
         # Examples:
         #   if text.startswith("http"):
-        #       print("  → URL detected")
-        #   if re.match(r'\d{16}', text):
-        #       print("  → possible card number, skipping log")
+        #       print("  -> URL detected")
 
     def handle_files(self, paths: list[str]):
         """Called whenever one or more files are copied (Ctrl+C in Explorer)."""
@@ -114,4 +115,4 @@ class ClipboardWatcher:
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     ClipboardWatcher()
-    win32gui.PumpMessages()   # blocks, dispatching Win32 messages until WM_QUIT
+    win32gui.PumpMessages()
